@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Official schedule board for Subrahmanya Bus Stand (KSRTC). Check departure times, platforms, and upcoming buses." />
+  <meta name="theme-color" content="#1a73e8" />
+  <title>Subrahmanya Bus Timetable | KSRTC Official Board</title>
+  
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Noto+Sans+Kannada:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-container">
+      <div class="logo-group">
+        <span class="bus-icon">🚍</span>
+        <div>
+          <h1 class="app-title">Subrahmanya Bus Timetable</h1>
+          <p class="app-subtitle">ಸುಬ್ರಹ್ಮಣ್ಯ ಬಸ್ ನಿಲ್ದಾಣ • KSRTC</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <div id="liveClock" class="live-clock" aria-label="Current system time">--:--:--</div>
+        <button id="themeToggle" class="icon-btn" aria-label="Toggle Dark Mode">🌙</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-container">
+    <section class="hero-section" id="nextBusContainer" aria-live="polite">
+      <div class="hero-card">
+        <div class="hero-header">
+          <span class="badge live-badge">● NEXT UPCOMING DEPARTURE</span>
+          <span id="nextBusCountdown" class="countdown-text">Calculating...</span>
+        </div>
+        <div class="hero-body">
+          <div class="route-hero">
+            <span class="origin">Subrahmanya</span>
+            <span class="arrow">➔</span>
+            <span class="destination" id="nextBusDest">Loading...</span>
+          </div>
+          <div class="hero-meta">
+            <div><strong>Time:</strong> <span id="nextBusTime">--:--</span></div>
+            <div><strong>Platform:</strong> <span id="nextBusPlatform">--</span></div>
+            <div><strong>Service:</strong> <span id="nextBusType">--</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="controls-section">
+      <div class="search-bar-wrapper">
+        <span class="search-icon">🔍</span>
+        <input 
+          type="search" 
+          id="searchInput" 
+          placeholder="Search destination, platform, time (e.g. 14:30)..." 
+          aria-label="Search timetable"
+        />
+      </div>
+
+      <div class="filter-group time-filters" role="group" aria-label="Filter by time of day">
+        <button class="filter-chip active" data-time-filter="all">All Times</button>
+        <button class="filter-chip" data-time-filter="morning">Morning (04:00 - 11:59)</button>
+        <button class="filter-chip" data-time-filter="afternoon">Afternoon (12:00 - 16:59)</button>
+        <button class="filter-chip" data-time-filter="evening">Evening (17:00 - 23:59)</button>
+        <button class="filter-chip" data-time-filter="fav">⭐ Starred Routes</button>
+      </div>
+
+      <div class="destination-chips" id="destinationChips" role="group" aria-label="Filter by destination">
+        </div>
+    </section>
+
+    <section class="results-section">
+      <div class="results-header">
+        <h2 id="resultsCount">Showing all departures</h2>
+        <div class="sort-wrapper">
+          <label for="sortSelect">Sort:</label>
+          <select id="sortSelect" class="sort-select">
+            <option value="time-asc">Departure Time (Earliest first)</option>
+            <option value="time-desc">Departure Time (Latest first)</option>
+            <option value="dest-asc">Destination (A to Z)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="cards-grid" id="busCardsGrid">
+        </div>
+      <div id="noResults" class="no-results hidden">
+        <p>No bus departures match your current search/filter.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p>Data source: Subrahmanya KSRTC Bus Station Schedule Board.</p>
+    <p>Offline-ready Progressive Web Application.</p>
+  </footer>
+
+  <dialog id="routeModal" class="route-modal">
+    <div class="modal-content">
+      <button class="close-btn" id="closeModalBtn" aria-label="Close modal">&times;</button>
+      <div id="modalBody"></div>
+    </div>
+  </dialog>
+
+  <script src="data.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
