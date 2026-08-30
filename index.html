@@ -2,133 +2,192 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Official schedule board for Subrahmanya Bus Stand (KSRTC). Check departure times, platforms, and upcoming buses." />
-  <meta name="theme-color" content="#1a73e8" />
-  <title>Subrahmanya Bus Timetable | KSRTC Official Board</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="description" content="Next-gen transit tracker for Subrahmanya KSRTC Bus Stand. Live countdowns, platform bays, and route explorer." />
+  <meta name="theme-color" content="#0F172A" />
+  <title>Subrahmanya Transit Live | KSRTC Radar</title>
   
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Noto+Sans+Kannada:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&family=Noto+Sans+Kannada:wght@400;600;700&display=swap" rel="stylesheet">
 </head>
-<body>
+<body data-theme="dark">
+
+  <aside class="station-ticker" aria-label="Live announcements">
+    <div class="ticker-badge">LIVE TERMINAL</div>
+    <div class="ticker-track">
+      <span class="ticker-text" id="tickerText">Subrahmanya Bus Stand (ಸುಬ್ರಹ್ಮಣ್ಯ ಬಸ್ ನಿಲ್ದಾಣ) • Non-stop services to Bengaluru & Dharmasthala active • Check bay allocations below.</span>
+    </div>
+  </aside>
+
   <header class="app-header">
     <div class="header-container">
-      <div class="logo-group">
-        <span class="bus-icon">🚍</span>
+      <div class="brand">
+        <div class="brand-radar">
+          <span class="radar-circle"></span>
+          <span class="brand-icon">⚡</span>
+        </div>
         <div>
-          <h1 class="app-title">Subrahmanya Bus Timetable</h1>
-          <p class="app-subtitle">ಸುಬ್ರಹ್ಮಣ್ಯ ಬಸ್ ನಿಲ್ದಾಣ • KSRTC</p>
+          <div class="brand-title">KSRTC Pulse <span class="version-tag">Subrahmanya</span></div>
+          <div class="brand-kannada">ಸುಬ್ರಹ್ಮಣ್ಯ ಕೆ.ಎಸ್.ಆರ್.ಟಿ.ಸಿ ನಿಲ್ದಾಣ</div>
         </div>
       </div>
-      <div class="header-actions">
-        <div id="liveClock" class="live-clock" aria-label="Current system time">--:--:--</div>
-        <button id="themeToggle" class="icon-btn" aria-label="Toggle Dark Mode">🌙</button>
+      <div class="header-tools">
+        <div id="liveClock" class="hud-clock">00:00:00</div>
+        <button id="soundToggle" class="hud-btn" title="Toggle Departure Chime" aria-label="Toggle Sound">🔔</button>
+        <button id="themeToggle" class="hud-btn" title="Toggle Theme" aria-label="Toggle Theme">🌙</button>
       </div>
     </div>
   </header>
 
-  <main class="main-container">
-    <section class="hero-section" id="nextBusContainer" aria-live="polite">
-      <div class="hero-card">
-        <div class="hero-header">
-          <span class="badge live-badge">● NEXT UPCOMING DEPARTURE</span>
-          <span id="nextBusCountdown" class="countdown-text">Calculating...</span>
-        </div>
-        <div class="hero-body">
-          <div class="route-hero">
-            <span class="origin">Subrahmanya</span>
-            <span class="arrow">➔</span>
-            <span class="destination" id="nextBusDest">Loading...</span>
+  <main class="main-wrapper">
+    <section class="live-radar-hero" id="radarHero">
+      <div class="radar-card">
+        <div class="radar-top">
+          <div class="radar-meta-badge">
+            <span class="pulse-dot"></span>
+            <span id="radarType">EXPRESS SERVICE</span>
           </div>
-          <div class="hero-meta">
-            <div><strong>Time:</strong> <span id="nextBusTime">--:--</span></div>
-            <div><strong>Platform:</strong> <span id="nextBusPlatform">--</span></div>
-            <div><strong>Service:</strong> <span id="nextBusType">--</span></div>
+          <div class="bay-pill">BAY / ವೇದಿಕೆ <strong id="radarBay">1</strong></div>
+        </div>
+
+        <div class="radar-destination-block">
+          <div class="radar-route-label">NEXT IMMEDIATE BOARDING</div>
+          <div class="radar-destination" id="radarDest">Bengaluru</div>
+          <div class="radar-dest-kn" id="radarDestKn">ಬೆಂಗಳೂರು</div>
+        </div>
+
+        <div class="radar-timeline-footer">
+          <div class="radar-departure-box">
+            <div class="label">SCHEDULED</div>
+            <div class="val" id="radarTime">--:-- --</div>
+          </div>
+          <div class="radar-countdown-box">
+            <div class="label">ESTIMATED DEPARTURE</div>
+            <div class="countdown-highlight" id="radarCountdown">Calculating...</div>
           </div>
         </div>
       </div>
     </section>
 
-    <section class="controls-section">
-      <div class="search-bar-wrapper">
-        <span class="search-icon">🔍</span>
+    <section class="platform-navigator">
+      <div class="section-title-row">
+        <h3>Interactive Platform Bays (ವೇದಿಕೆಗಳು)</h3>
+        <span class="hint-text">Tap bay to filter</span>
+      </div>
+      <div class="platform-dock" id="platformDock">
+        <button class="bay-btn active" data-bay="all">All</button>
+        <button class="bay-btn" data-bay="1, 2, 3">Bays 1-3 <span class="bay-sub">Blr</span></button>
+        <button class="bay-btn" data-bay="4">Bay 4 <span class="bay-sub">Mys</span></button>
+        <button class="bay-btn" data-bay="5">Bay 5 <span class="bay-sub">Smg</span></button>
+        <button class="bay-btn" data-bay="5, 6, 7">Bays 5-7 <span class="bay-sub">Dhr</span></button>
+        <button class="bay-btn" data-bay="8">Bay 8 <span class="bay-sub">Mlr/Upn</span></button>
+        <button class="bay-btn" data-bay="9">Bay 9 <span class="bay-sub">Ptr</span></button>
+        <button class="bay-btn" data-bay="10">Bay 10 <span class="bay-sub">Sul</span></button>
+      </div>
+    </section>
+
+    <section class="query-hub">
+      <div class="search-box">
+        <span class="search-prefix">⚡</span>
         <input 
           type="search" 
           id="searchInput" 
-          placeholder="Search destination, platform, time (e.g. 14:30)..." 
-          aria-label="Search timetable"
+          placeholder="Type destination, bay, service (e.g. Rajahamsa, 21:35, Puttur)..."
+          autocomplete="off"
         />
+        <button id="clearSearch" class="clear-btn hidden">&times;</button>
       </div>
 
-      <div class="filter-group time-filters" role="group" aria-label="Filter by time of day">
-        <button class="filter-chip active" data-time-filter="all">All Times</button>
-        <button class="filter-chip" data-time-filter="morning">Morning (04:00 - 11:59)</button>
-        <button class="filter-chip" data-time-filter="afternoon">Afternoon (12:00 - 16:59)</button>
-        <button class="filter-chip" data-time-filter="evening">Evening (17:00 - 23:59)</button>
-        <button class="filter-chip" data-time-filter="fav">⭐ Starred Routes</button>
+      <div class="filters-row">
+        <div class="select-container">
+          <select id="destinationSelect" class="styled-select" aria-label="Select Destination">
+            <option value="all">📍 All Destinations (ಎಲ್ಲಾ ಊರುಗಳು)</option>
+          </select>
+        </div>
+
+        <div class="chip-scroll">
+          <button class="time-chip active" data-time="all">All Day</button>
+          <button class="time-chip" data-time="morning">🌅 Morning</button>
+          <button class="time-chip" data-time="afternoon">☀️ Afternoon</button>
+          <button class="time-chip" data-time="evening">🌙 Night</button>
+          <button class="time-chip" data-time="fav">⭐ Starred</button>
+        </div>
       </div>
+    </section>
 
-     <section class="controls-section">
-  <div class="search-bar-wrapper">
-    <span class="search-icon">🔍</span>
-    <input 
-      type="search" 
-      id="searchInput" 
-      placeholder="Search destination, platform, time (e.g. 14:30)..." 
-      aria-label="Search timetable"
-    />
-  </div>
-
-  <div class="dropdown-wrapper">
-    <label for="destinationSelect" class="dropdown-label">Select Destination:</label>
-    <select id="destinationSelect" class="custom-dropdown" aria-label="Filter by destination">
-      <option value="all">📍 All Destinations (ಎಲ್ಲಾ ಸ್ಥಳಗಳು)</option>
-      </select>
-  </div>
-
-  <div class="filter-group time-filters" role="group" aria-label="Filter by time of day">
-    <button class="filter-chip active" data-time-filter="all">All Times</button>
-    <button class="filter-chip" data-time-filter="morning">Morning (04:00 - 11:59)</button>
-    <button class="filter-chip" data-time-filter="afternoon">Afternoon (12:00 - 16:59)</button>
-    <button class="filter-chip" data-time-filter="evening">Evening (17:00 - 23:59)</button>
-    <button class="filter-chip" data-time-filter="fav">⭐ Starred Routes</button>
-  </div>
-</section>
-
-
-    <section class="results-section">
-      <div class="results-header">
-        <h2 id="resultsCount">Showing all departures</h2>
-        <div class="sort-wrapper">
-          <label for="sortSelect">Sort:</label>
-          <select id="sortSelect" class="sort-select">
-            <option value="time-asc">Departure Time (Earliest first)</option>
-            <option value="time-desc">Departure Time (Latest first)</option>
-            <option value="dest-asc">Destination (A to Z)</option>
+    <section class="feed-section">
+      <div class="feed-header">
+        <div class="feed-title">
+          <span class="status-indicator"></span>
+          <h2 id="feedSummary">Departures Board</h2>
+        </div>
+        <div class="sort-tool">
+          <select id="sortSelect" class="mini-select">
+            <option value="time-asc">Time (Earliest)</option>
+            <option value="time-desc">Time (Latest)</option>
+            <option value="dest-asc">Destination (A-Z)</option>
           </select>
         </div>
       </div>
 
-      <div class="cards-grid" id="busCardsGrid">
+      <div class="cards-stream" id="cardsStream">
         </div>
-      <div id="noResults" class="no-results hidden">
-        <p>No bus departures match your current search/filter.</p>
+
+      <div id="noResults" class="empty-state hidden">
+        <div class="empty-icon">🧭</div>
+        <h3>No Buses Match Your Criteria</h3>
+        <p>Try switching bays or resetting your search filters.</p>
+        <button id="resetFiltersBtn" class="action-btn">Reset All Filters</button>
       </div>
     </section>
   </main>
 
-  <footer class="app-footer">
-    <p>Data source: Subrahmanya KSRTC Bus Station Schedule Board.</p>
-    <p>Offline-ready Progressive Web Application.</p>
-  </footer>
+  <dialog id="routeModal" class="transit-drawer">
+    <div class="drawer-container">
+      <div class="drawer-handle"></div>
+      <div class="drawer-header">
+        <div class="drawer-badge" id="modalBadge">KSRTC EXPRESS</div>
+        <button class="drawer-close" id="closeModalBtn" aria-label="Close">&times;</button>
+      </div>
+      
+      <div class="drawer-body">
+        <div class="journey-header">
+          <div class="j-station">
+            <span class="j-city">Subrahmanya</span>
+            <span class="j-state">Terminal Bay <span id="modalBayNum">1</span></span>
+          </div>
+          <div class="j-arrow">➔</div>
+          <div class="j-station">
+            <span class="j-city" id="modalDestCity">Bengaluru</span>
+            <span class="j-state" id="modalDestKn">ಬೆಂಗಳೂರು</span>
+          </div>
+        </div>
 
-  <dialog id="routeModal" class="route-modal">
-    <div class="modal-content">
-      <button class="close-btn" id="closeModalBtn" aria-label="Close modal">&times;</button>
-      <div id="modalBody"></div>
+        <div class="journey-specs">
+          <div class="spec-card">
+            <span class="spec-lbl">SCHEDULED TIME</span>
+            <span class="spec-val" id="modalTime">--:-- --</span>
+          </div>
+          <div class="spec-card">
+            <span class="spec-lbl">SERVICE CLASS</span>
+            <span class="spec-val" id="modalServiceClass">Karnataka Sarige</span>
+          </div>
+          <div class="spec-card">
+            <span class="spec-lbl">STATUS</span>
+            <span class="spec-val text-success">Scheduled</span>
+          </div>
+        </div>
+
+        <div class="transit-timeline" id="transitTimeline">
+          </div>
+
+        <div class="drawer-actions">
+          <button class="share-btn" id="shareBusBtn">📲 Share Schedule</button>
+        </div>
+      </div>
     </div>
   </dialog>
 
