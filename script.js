@@ -5,12 +5,83 @@ let searchTerm = "";
 let sortBy = "time-asc";
 let favourites = JSON.parse(localStorage.getItem("favourite_routes") || "[]");
 
+// -------------------------------------------------------------
+// Fuzzy Search & Normalization Utilities
+// -------------------------------------------------------------
+
+// Calculate Levenshtein Distance between two strings
+function levenshteinDistance(a, b) {
+  const matrix = [];
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1, // substitution
+          matrix[i][j - 1] + 1,     // insertion
+          matrix[i - 1][j] + 1      // deletion
+        );
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+// Clean and normalize strings (removes excess spaces, symbols, lowercase)
+function normalizeText(text) {
+  return (text || "")
+    .toLowerCase()
+    .replace(/[^\w\s\u0C80-\u0CFF]/gi, '') // Keep alphanumeric, spaces, and Kannada unicode block
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Normalize time formats (supports "7:30", "07.30", "7 30", "730", "0730")
+function normalizeTime(timeStr) {
+  return (timeStr || "").replace(/[:.\s]/g, "").trim();
+}
+
+// Check if query fuzzy matches target (handles partial substrings + typos)
+function fuzzyMatch(query, target) {
+  if (!query || !target) return false;
+
+  const q = normalizeText(query);
+  const t = normalizeText(target);
+
+  // Exact or direct substring match
+  if (t.includes(q)) return true;
+
+  // Split query and target into words
+  const qWords = q.split(' ');
+  const tWords = t.split(' ');
+
+  return qWords.every(qWord => {
+    return tWords.some(tWord => {
+      if (tWord.includes(qWord)) return true;
+      
+      // Allow 1 typo for words of length 4-5, 2 typos for words > 5
+      const maxDistance = qWord.length > 5 ? 2 : (qWord.length >= 4 ? 1 : 0);
+      if (maxDistance > 0) {
+        return levenshteinDistance(qWord, tWord) <= maxDistance;
+      }
+      return false;
+    });
+  });
+}
+
+// -------------------------------------------------------------
+// Core Application Logic
+// -------------------------------------------------------------
+
 // Flatten departures into unified items
 function getAllDepartures() {
   const departures = [];
   TIMETABLE_DATA.routes.forEach(route => {
     route.departures.forEach(dep => {
-      // Normalize time string e.g. "08.15" -> "08:15"
       const formattedTime = dep.time.replace(".", ":");
       departures.push({
         routeId: route.id,
@@ -49,7 +120,6 @@ document.addEventListener("DOMContentLoaded", () => {
   applyFiltersAndRender();
 });
 
-// Setup destination filter buttons
 function renderDestinationChips() {
   const container = document.getElementById("destinationChips");
   container.innerHTML = `
@@ -64,15 +134,14 @@ function renderDestinationChips() {
   });
 }
 
-// Handle inputs & clicks
 function setupEventListeners() {
-  // Search
+  // Real-time fuzzy search
   document.getElementById("searchInput").addEventListener("input", (e) => {
-    searchTerm = e.target.value.toLowerCase();
+    searchTerm = e.target.value.trim();
     applyFiltersAndRender();
   });
 
-  // Time filters
+  // Time of day filters
   document.querySelectorAll("[data-time-filter]").forEach(btn => {
     btn.addEventListener("click", () => {
       document.querySelectorAll("[data-time-filter]").forEach(b => b.classList.remove("active"));
@@ -82,7 +151,7 @@ function setupEventListeners() {
     });
   });
 
-  // Destination filters
+  // Destination filter chips
   document.getElementById("destinationChips").addEventListener("click", (e) => {
     if (e.target.tagName === "BUTTON") {
       document.querySelectorAll("#destinationChips .filter-chip").forEach(b => b.classList.remove("active"));
@@ -107,7 +176,6 @@ function setupEventListeners() {
   });
 }
 
-// Main filter & render pipeline
 function applyFiltersAndRender() {
   const allDeps = getAllDepartures();
   const now = new Date();
@@ -124,13 +192,23 @@ function applyFiltersAndRender() {
     if (activeTimeFilter === "evening" && mins < 1020) return false;
     if (activeTimeFilter === "fav" && !favourites.includes(item.routeId)) return false;
 
-    // Search query
+    // Smart Search Query Evaluation
     if (searchTerm) {
-      const matchDest = item.destination_en.toLowerCase().includes(searchTerm) || 
-                        item.destination_kn.includes(searchTerm);
-      const matchTime = item.time.includes(searchTerm);
-      const matchPlatform = item.platform.includes(searchTerm);
-      if (!matchDest && !matchTime && !matchPlatform) return false;
+      const matchDestEn = fuzzyMatch(searchTerm, item.destination_en);
+      const matchDestKn = fuzzyMatch(searchTerm, item.destination_kn);
+      const matchService = fuzzyMatch(searchTerm, item.serviceType);
+      
+      // Flexible time search (supports "08:15", "8.15", "815", "8 15")
+      const rawQueryTime = normalizeTime(searchTerm);
+      const rawItemTime = normalizeTime(item.time);
+      const matchTime = rawItemTime.includes(rawQueryTime) || item.time.includes(searchTerm);
+      
+      // Platform matching (e.g. "Platform 8", "pf 8", "8")
+      const matchPlatform = normalizeText(item.platform).includes(normalizeText(searchTerm));
+
+      if (!matchDestEn && !matchDestKn && !matchService && !matchTime && !matchPlatform) {
+        return false;
+      }
     }
 
     return true;
@@ -196,7 +274,6 @@ function renderCards(items, currentMinutes) {
   });
 }
 
-// Next bus countdown calculation
 function updateLiveClockAndNextBus() {
   const now = new Date();
   document.getElementById("liveClock").textContent = now.toLocaleTimeString();
@@ -204,7 +281,6 @@ function updateLiveClockAndNextBus() {
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
   const allDeps = getAllDepartures();
 
-  // Find the closest departure today
   let upcoming = allDeps
     .filter(d => timeToMinutes(d.time) >= currentMinutes)
     .sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
@@ -212,7 +288,6 @@ function updateLiveClockAndNextBus() {
   let nextBus = upcoming[0];
   let isTomorrow = false;
 
-  // If no more buses today, pick the first one tomorrow
   if (!nextBus && allDeps.length > 0) {
     nextBus = allDeps.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time))[0];
     isTomorrow = true;
@@ -259,7 +334,7 @@ function openRouteDetails(routeId, time) {
       </div>
     </div>
     <div style="font-size: 0.85rem; color: var(--text-secondary);">
-      * Timings reflect the official station board schedule. Subject to traffic and operational requirements.
+      * Timings reflect official station board schedule.
     </div>
   `;
   document.getElementById("routeModal").showModal();
@@ -275,7 +350,6 @@ function toggleFavourite(routeId) {
   applyFiltersAndRender();
 }
 
-// Dark Mode toggling
 function initTheme() {
   const savedTheme = localStorage.getItem("app_theme") || 
     (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
@@ -295,7 +369,6 @@ function updateThemeIcon(theme) {
   document.getElementById("themeToggle").textContent = theme === "dark" ? "☀️" : "🌙";
 }
 
-// Register service worker for offline use
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(err => console.log("SW registration failed", err));
 }
