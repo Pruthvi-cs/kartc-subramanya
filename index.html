@@ -71,9 +71,33 @@
         <button class="filter-chip" data-time-filter="fav">⭐ Starred Routes</button>
       </div>
 
-      <div class="destination-chips" id="destinationChips" role="group" aria-label="Filter by destination">
-        </div>
-    </section>
+     <section class="controls-section">
+  <div class="search-bar-wrapper">
+    <span class="search-icon">🔍</span>
+    <input 
+      type="search" 
+      id="searchInput" 
+      placeholder="Search destination, platform, time (e.g. 14:30)..." 
+      aria-label="Search timetable"
+    />
+  </div>
+
+  <div class="dropdown-wrapper">
+    <label for="destinationSelect" class="dropdown-label">Select Destination:</label>
+    <select id="destinationSelect" class="custom-dropdown" aria-label="Filter by destination">
+      <option value="all">📍 All Destinations (ಎಲ್ಲಾ ಸ್ಥಳಗಳು)</option>
+      </select>
+  </div>
+
+  <div class="filter-group time-filters" role="group" aria-label="Filter by time of day">
+    <button class="filter-chip active" data-time-filter="all">All Times</button>
+    <button class="filter-chip" data-time-filter="morning">Morning (04:00 - 11:59)</button>
+    <button class="filter-chip" data-time-filter="afternoon">Afternoon (12:00 - 16:59)</button>
+    <button class="filter-chip" data-time-filter="evening">Evening (17:00 - 23:59)</button>
+    <button class="filter-chip" data-time-filter="fav">⭐ Starred Routes</button>
+  </div>
+</section>
+
 
     <section class="results-section">
       <div class="results-header">
