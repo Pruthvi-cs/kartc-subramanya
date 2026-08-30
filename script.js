@@ -120,19 +120,69 @@ document.addEventListener("DOMContentLoaded", () => {
   applyFiltersAndRender();
 });
 
-function renderDestinationChips() {
-  const container = document.getElementById("destinationChips");
-  container.innerHTML = `
-    <button class="filter-chip active" data-dest="all">All Destinations</button>
-  `;
+// Populate the destination dropdown
+function renderDestinationDropdown() {
+  const select = document.getElementById("destinationSelect");
+  
+  // Clear any existing options except the default 'All'
+  select.innerHTML = `<option value="all">📍 All Destinations (ಎಲ್ಲಾ ಸ್ಥಳಗಳು)</option>`;
+  
   TIMETABLE_DATA.routes.forEach(route => {
-    const btn = document.createElement("button");
-    btn.className = "filter-chip";
-    btn.dataset.dest = route.id;
-    btn.textContent = `${route.destination_en} (${route.destination_kn})`;
-    container.appendChild(btn);
+    const option = document.createElement("option");
+    option.value = route.id;
+    option.textContent = `${route.destination_en} (${route.destination_kn}) — Platform ${route.platform}`;
+    select.appendChild(option);
   });
 }
+
+// Update setupEventListeners to watch the dropdown change
+function setupEventListeners() {
+  // Real-time fuzzy search
+  document.getElementById("searchInput").addEventListener("input", (e) => {
+    searchTerm = e.target.value.trim();
+    applyFiltersAndRender();
+  });
+
+  // Time of day filters
+  document.querySelectorAll("[data-time-filter]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("[data-time-filter]").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      activeTimeFilter = btn.dataset.timeFilter;
+      applyFiltersAndRender();
+    });
+  });
+
+  // Destination Dropdown Listener
+  document.getElementById("destinationSelect").addEventListener("change", (e) => {
+    activeDestination = e.target.value;
+    applyFiltersAndRender();
+  });
+
+  // Sort dropdown
+  document.getElementById("sortSelect").addEventListener("change", (e) => {
+    sortBy = e.target.value;
+    applyFiltersAndRender();
+  });
+
+  // Theme switch
+  document.getElementById("themeToggle").addEventListener("click", toggleTheme);
+
+  // Modal close
+  document.getElementById("closeModalBtn").addEventListener("click", () => {
+    document.getElementById("routeModal").close();
+  });
+}
+
+// In DOMContentLoaded, call renderDestinationDropdown instead:
+document.addEventListener("DOMContentLoaded", () => {
+  initTheme();
+  renderDestinationDropdown();
+  setupEventListeners();
+  updateLiveClockAndNextBus();
+  setInterval(updateLiveClockAndNextBus, 1000);
+  applyFiltersAndRender();
+});
 
 function setupEventListeners() {
   // Real-time fuzzy search
