@@ -1,392 +1,367 @@
-// State variables
+/**
+ * Pulse Transit Engine - Interactive Timetable Controller
+ */
+
+let activeBay = "all";
 let activeDestination = "all";
 let activeTimeFilter = "all";
 let searchTerm = "";
 let sortBy = "time-asc";
-let favourites = JSON.parse(localStorage.getItem("favourite_routes") || "[]");
+let favourites = JSON.parse(localStorage.getItem("pulse_fav_routes") || "[]");
+let soundEnabled = localStorage.getItem("pulse_sound") === "true";
 
-// -------------------------------------------------------------
-// Fuzzy Search & Normalization Utilities
-// -------------------------------------------------------------
+// Sound synthesizer using Web Audio API
+function playDepartureChime() {
+  if (!soundEnabled) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+    osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15); // A5
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+  } catch (e) {
+    console.error("Audio error", e);
+  }
+}
 
-// Calculate Levenshtein Distance between two strings
-function levenshteinDistance(a, b) {
+// Levenshtein & normalizers
+function levenshtein(a, b) {
   const matrix = [];
   for (let i = 0; i <= b.length; i++) matrix[i] = [i];
   for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
-
   for (let i = 1; i <= b.length; i++) {
     for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1, // substitution
-          matrix[i][j - 1] + 1,     // insertion
-          matrix[i - 1][j] + 1      // deletion
-        );
-      }
+      matrix[i][j] = b.charAt(i - 1) === a.charAt(j - 1)
+        ? matrix[i - 1][j - 1]
+        : Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1);
     }
   }
   return matrix[b.length][a.length];
 }
 
-// Clean and normalize strings (removes excess spaces, symbols, lowercase)
-function normalizeText(text) {
-  return (text || "")
-    .toLowerCase()
-    .replace(/[^\w\s\u0C80-\u0CFF]/gi, '') // Keep alphanumeric, spaces, and Kannada unicode block
-    .replace(/\s+/g, ' ')
-    .trim();
+function clean(txt) {
+  return (txt || "").toLowerCase().replace(/[^\w\s\u0C80-\u0CFF]/gi, '').replace(/\s+/g, ' ').trim();
 }
 
-// Normalize time formats (supports "7:30", "07.30", "7 30", "730", "0730")
-function normalizeTime(timeStr) {
-  return (timeStr || "").replace(/[:.\s]/g, "").trim();
-}
-
-// Check if query fuzzy matches target (handles partial substrings + typos)
-function fuzzyMatch(query, target) {
-  if (!query || !target) return false;
-
-  const q = normalizeText(query);
-  const t = normalizeText(target);
-
-  // Exact or direct substring match
+function fuzzyCheck(query, text) {
+  if (!query || !text) return false;
+  const q = clean(query);
+  const t = clean(text);
   if (t.includes(q)) return true;
-
-  // Split query and target into words
-  const qWords = q.split(' ');
-  const tWords = t.split(' ');
-
-  return qWords.every(qWord => {
-    return tWords.some(tWord => {
-      if (tWord.includes(qWord)) return true;
-      
-      // Allow 1 typo for words of length 4-5, 2 typos for words > 5
-      const maxDistance = qWord.length > 5 ? 2 : (qWord.length >= 4 ? 1 : 0);
-      if (maxDistance > 0) {
-        return levenshteinDistance(qWord, tWord) <= maxDistance;
-      }
-      return false;
-    });
-  });
+  return q.split(' ').every(qw => 
+    t.split(' ').some(tw => tw.includes(qw) || (qw.length > 3 && levenshtein(qw, tw) <= (qw.length > 5 ? 2 : 1)))
+  );
 }
 
-// -------------------------------------------------------------
-// Core Application Logic
-// -------------------------------------------------------------
+function timeToMin(t) {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+}
 
-// Flatten departures into unified items
-function getAllDepartures() {
-  const departures = [];
+function format12(t) {
+  const [h, m] = t.split(":").map(Number);
+  const p = h >= 12 ? "PM" : "AM";
+  return `${String(h % 12 || 12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${p}`;
+}
+
+function getAllBuses() {
+  const all = [];
   TIMETABLE_DATA.routes.forEach(route => {
     route.departures.forEach(dep => {
-      const formattedTime = dep.time.replace(".", ":");
-      departures.push({
+      all.push({
+        id: `${route.id}-${dep.time}`,
         routeId: route.id,
         destination_en: route.destination_en,
         destination_kn: route.destination_kn,
         platform: route.platform,
-        serviceType: dep.type || route.bus_type,
-        time: formattedTime
+        service: dep.type || route.bus_type,
+        time: dep.time.replace(".", ":")
       });
     });
   });
-  return departures;
+  return all;
 }
 
-// Convert "HH:MM" string to minutes from midnight
-function timeToMinutes(timeStr) {
-  const [h, m] = timeStr.split(":").map(Number);
-  return h * 60 + m;
-}
-
-// Format 24-hr time to 12-hr display
-function formatTo12Hour(timeStr) {
-  const [hours, minutes] = timeStr.split(":").map(Number);
-  const period = hours >= 12 ? "PM" : "AM";
-  const displayHours = hours % 12 || 12;
-  return `${String(displayHours).padStart(2, '0')}:${String(minutes).padStart(2, '0')} ${period}`;
-}
-
-// Initialize application
+// App Initialization
 document.addEventListener("DOMContentLoaded", () => {
   initTheme();
-  renderDestinationChips();
-  setupEventListeners();
-  updateLiveClockAndNextBus();
-  setInterval(updateLiveClockAndNextBus, 1000);
-  applyFiltersAndRender();
+  initSoundButton();
+  populateDestDropdown();
+  bindEvents();
+  updateLiveFeed();
+  setInterval(updateLiveFeed, 1000);
 });
 
-// Populate the destination dropdown
-function renderDestinationDropdown() {
-  const select = document.getElementById("destinationSelect");
-  
-  // Clear any existing options except the default 'All'
-  select.innerHTML = `<option value="all">📍 All Destinations (ಎಲ್ಲಾ ಸ್ಥಳಗಳು)</option>`;
-  
-  TIMETABLE_DATA.routes.forEach(route => {
-    const option = document.createElement("option");
-    option.value = route.id;
-    option.textContent = `${route.destination_en} (${route.destination_kn}) — Platform ${route.platform}`;
-    select.appendChild(option);
+function initSoundButton() {
+  const btn = document.getElementById("soundToggle");
+  btn.textContent = soundEnabled ? "🔔" : "🔕";
+  btn.addEventListener("click", () => {
+    soundEnabled = !soundEnabled;
+    localStorage.setItem("pulse_sound", soundEnabled);
+    btn.textContent = soundEnabled ? "🔔" : "🔕";
+    if (soundEnabled) playDepartureChime();
   });
 }
 
-// Update setupEventListeners to watch the dropdown change
-function setupEventListeners() {
-  // Real-time fuzzy search
-  document.getElementById("searchInput").addEventListener("input", (e) => {
+function populateDestDropdown() {
+  const sel = document.getElementById("destinationSelect");
+  sel.innerHTML = `<option value="all">📍 All Destinations (ಎಲ್ಲಾ ಊರುಗಳು)</option>`;
+  TIMETABLE_DATA.routes.forEach(r => {
+    const opt = document.createElement("option");
+    opt.value = r.id;
+    opt.textContent = `${r.destination_en} (${r.destination_kn}) — Bay ${r.platform}`;
+    sel.appendChild(opt);
+  });
+}
+
+function bindEvents() {
+  // Search
+  const searchInput = document.getElementById("searchInput");
+  const clearBtn = document.getElementById("clearSearch");
+  
+  searchInput.addEventListener("input", (e) => {
     searchTerm = e.target.value.trim();
-    applyFiltersAndRender();
+    clearBtn.classList.toggle("hidden", !searchTerm);
+    applyFilters();
   });
 
-  // Time of day filters
-  document.querySelectorAll("[data-time-filter]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll("[data-time-filter]").forEach(b => b.classList.remove("active"));
+  clearBtn.addEventListener("click", () => {
+    searchInput.value = "";
+    searchTerm = "";
+    clearBtn.classList.add("hidden");
+    applyFilters();
+  });
+
+  // Bay selector dock
+  document.getElementById("platformDock").addEventListener("click", (e) => {
+    const btn = e.target.closest(".bay-btn");
+    if (btn) {
+      document.querySelectorAll(".bay-btn").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
-      activeTimeFilter = btn.dataset.timeFilter;
-      applyFiltersAndRender();
-    });
+      activeBay = btn.dataset.bay;
+      applyFilters();
+    }
   });
 
-  // Destination Dropdown Listener
+  // Destination select
   document.getElementById("destinationSelect").addEventListener("change", (e) => {
     activeDestination = e.target.value;
-    applyFiltersAndRender();
+    applyFilters();
   });
 
-  // Sort dropdown
-  document.getElementById("sortSelect").addEventListener("change", (e) => {
-    sortBy = e.target.value;
-    applyFiltersAndRender();
-  });
-
-  // Theme switch
-  document.getElementById("themeToggle").addEventListener("click", toggleTheme);
-
-  // Modal close
-  document.getElementById("closeModalBtn").addEventListener("click", () => {
-    document.getElementById("routeModal").close();
-  });
-}
-
-// In DOMContentLoaded, call renderDestinationDropdown instead:
-document.addEventListener("DOMContentLoaded", () => {
-  initTheme();
-  renderDestinationDropdown();
-  setupEventListeners();
-  updateLiveClockAndNextBus();
-  setInterval(updateLiveClockAndNextBus, 1000);
-  applyFiltersAndRender();
-});
-
-function setupEventListeners() {
-  // Real-time fuzzy search
-  document.getElementById("searchInput").addEventListener("input", (e) => {
-    searchTerm = e.target.value.trim();
-    applyFiltersAndRender();
-  });
-
-  // Time of day filters
-  document.querySelectorAll("[data-time-filter]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll("[data-time-filter]").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      activeTimeFilter = btn.dataset.timeFilter;
-      applyFiltersAndRender();
+  // Time chips
+  document.querySelectorAll(".time-chip").forEach(chip => {
+    chip.addEventListener("click", () => {
+      document.querySelectorAll(".time-chip").forEach(c => c.classList.remove("active"));
+      chip.classList.add("active");
+      activeTimeFilter = chip.dataset.time;
+      applyFilters();
     });
-  });
-
-  // Destination filter chips
-  document.getElementById("destinationChips").addEventListener("click", (e) => {
-    if (e.target.tagName === "BUTTON") {
-      document.querySelectorAll("#destinationChips .filter-chip").forEach(b => b.classList.remove("active"));
-      e.target.classList.add("active");
-      activeDestination = e.target.dataset.dest;
-      applyFiltersAndRender();
-    }
   });
 
   // Sort
   document.getElementById("sortSelect").addEventListener("change", (e) => {
     sortBy = e.target.value;
-    applyFiltersAndRender();
+    applyFilters();
   });
 
-  // Theme switch
+  // Theme
   document.getElementById("themeToggle").addEventListener("click", toggleTheme);
 
-  // Modal close
+  // Modal Close
   document.getElementById("closeModalBtn").addEventListener("click", () => {
     document.getElementById("routeModal").close();
   });
+
+  // Reset Empty State
+  document.getElementById("resetFiltersBtn").addEventListener("click", () => {
+    activeBay = "all";
+    activeDestination = "all";
+    activeTimeFilter = "all";
+    searchTerm = "";
+    searchInput.value = "";
+    document.querySelectorAll(".bay-btn").forEach(b => b.classList.toggle("active", b.dataset.bay === "all"));
+    document.querySelectorAll(".time-chip").forEach(c => c.classList.toggle("active", c.dataset.time === "all"));
+    document.getElementById("destinationSelect").value = "all";
+    applyFilters();
+  });
 }
 
-function applyFiltersAndRender() {
-  const allDeps = getAllDepartures();
+// Core Filter Engine
+function applyFilters() {
+  const all = getAllBuses();
   const now = new Date();
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const nowMins = now.getHours() * 60 + now.getMinutes();
 
-  let filtered = allDeps.filter(item => {
-    // Destination filter
+  let filtered = all.filter(item => {
+    if (activeBay !== "all" && !item.platform.includes(activeBay)) return false;
     if (activeDestination !== "all" && item.routeId !== activeDestination) return false;
 
-    // Time filter
-    const mins = timeToMinutes(item.time);
+    const mins = timeToMin(item.time);
     if (activeTimeFilter === "morning" && (mins < 240 || mins >= 720)) return false;
     if (activeTimeFilter === "afternoon" && (mins < 720 || mins >= 1020)) return false;
     if (activeTimeFilter === "evening" && mins < 1020) return false;
     if (activeTimeFilter === "fav" && !favourites.includes(item.routeId)) return false;
 
-    // Smart Search Query Evaluation
     if (searchTerm) {
-      const matchDestEn = fuzzyMatch(searchTerm, item.destination_en);
-      const matchDestKn = fuzzyMatch(searchTerm, item.destination_kn);
-      const matchService = fuzzyMatch(searchTerm, item.serviceType);
-      
-      // Flexible time search (supports "08:15", "8.15", "815", "8 15")
-      const rawQueryTime = normalizeTime(searchTerm);
-      const rawItemTime = normalizeTime(item.time);
-      const matchTime = rawItemTime.includes(rawQueryTime) || item.time.includes(searchTerm);
-      
-      // Platform matching (e.g. "Platform 8", "pf 8", "8")
-      const matchPlatform = normalizeText(item.platform).includes(normalizeText(searchTerm));
-
-      if (!matchDestEn && !matchDestKn && !matchService && !matchTime && !matchPlatform) {
-        return false;
-      }
+      const matchDest = fuzzyCheck(searchTerm, item.destination_en) || fuzzyCheck(searchTerm, item.destination_kn);
+      const matchSvc = fuzzyCheck(searchTerm, item.service);
+      const matchTime = item.time.replace(":", "").includes(searchTerm.replace(/[:.\s]/g, ""));
+      const matchBay = item.platform.includes(searchTerm);
+      if (!matchDest && !matchSvc && !matchTime && !matchBay) return false;
     }
-
     return true;
   });
 
-  // Sorting
+  // Sort
   filtered.sort((a, b) => {
-    if (sortBy === "time-asc") return timeToMinutes(a.time) - timeToMinutes(b.time);
-    if (sortBy === "time-desc") return timeToMinutes(b.time) - timeToMinutes(a.time);
+    if (sortBy === "time-asc") return timeToMin(a.time) - timeToMin(b.time);
+    if (sortBy === "time-desc") return timeToMin(b.time) - timeToMin(a.time);
     if (sortBy === "dest-asc") return a.destination_en.localeCompare(b.destination_en);
     return 0;
   });
 
-  renderCards(filtered, currentMinutes);
+  renderCards(filtered, nowMins);
 }
 
-function renderCards(items, currentMinutes) {
-  const grid = document.getElementById("busCardsGrid");
-  const countLabel = document.getElementById("resultsCount");
-  const noResults = document.getElementById("noResults");
+function renderCards(items, nowMins) {
+  const grid = document.getElementById("cardsStream");
+  const empty = document.getElementById("noResults");
+  const summary = document.getElementById("feedSummary");
 
   grid.innerHTML = "";
-  countLabel.textContent = `Showing ${items.length} departure${items.length === 1 ? '' : 's'}`;
+  summary.textContent = `Departures (${items.length})`;
 
   if (items.length === 0) {
-    noResults.classList.remove("hidden");
+    empty.classList.remove("hidden");
     return;
   }
-  noResults.classList.add("hidden");
+  empty.classList.add("hidden");
 
   items.forEach(bus => {
-    const isPast = timeToMinutes(bus.time) < currentMinutes;
+    const mins = timeToMin(bus.time);
+    const isPast = mins < nowMins;
+    const diff = mins - nowMins;
     const isFav = favourites.includes(bus.routeId);
 
+    let diffTag = "";
+    if (!isPast) {
+      diffTag = diff <= 60 ? `in ${diff}m` : `in ${Math.floor(diff / 60)}h ${diff % 60}m`;
+    }
+
     const card = document.createElement("div");
-    card.className = `bus-card ${isPast ? 'past-departure' : ''}`;
+    card.className = `transit-card ${isPast ? 'past' : ''}`;
     card.innerHTML = `
-      <div>
-        <div class="card-top">
-          <span class="card-time">${formatTo12Hour(bus.time)}</span>
-          <button class="star-btn ${isFav ? 'starred' : ''}" data-route-id="${bus.routeId}" aria-label="Favourite Route">
-            ${isFav ? '★' : '☆'}
-          </button>
+      <div class="card-upper">
+        <div>
+          <div class="time-badge">${format12(bus.time)}</div>
+          ${diffTag ? `<span class="time-diff">● ${diffTag}</span>` : ''}
         </div>
-        <div class="card-dest">${bus.destination_en}</div>
-        <div class="card-dest-kn">${bus.destination_kn}</div>
+        <button class="star-action ${isFav ? 'starred' : ''}" data-route="${bus.routeId}">
+          ${isFav ? '★' : '☆'}
+        </button>
       </div>
+
       <div>
-        <div class="card-details-row">
-          <span>Platform: <strong>${bus.platform}</strong></span>
-          <span>${bus.serviceType}</span>
-        </div>
-        <button class="details-btn" onclick="openRouteDetails('${bus.routeId}', '${bus.time}')">View Route Details</button>
+        <div class="dest-en">${bus.destination_en}</div>
+        <div class="dest-kn">${bus.destination_kn}</div>
+      </div>
+
+      <div class="card-lower">
+        <span class="bay-tag">Bay ${bus.platform}</span>
+        <span class="service-tag">${bus.service}</span>
       </div>
     `;
 
-    card.querySelector(".star-btn").addEventListener("click", (e) => {
+    // Star Click
+    card.querySelector(".star-action").addEventListener("click", (e) => {
       e.stopPropagation();
       toggleFavourite(bus.routeId);
     });
+
+    // Card Details Click
+    card.addEventListener("click", () => openDrawer(bus));
 
     grid.appendChild(card);
   });
 }
 
-function updateLiveClockAndNextBus() {
+function updateLiveFeed() {
   const now = new Date();
-  document.getElementById("liveClock").textContent = now.toLocaleTimeString();
+  document.getElementById("liveClock").textContent = now.toTimeString().split(" ")[0];
 
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-  const allDeps = getAllDepartures();
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+  const all = getAllBuses().sort((a, b) => timeToMin(a.time) - timeToMin(b.time));
 
-  let upcoming = allDeps
-    .filter(d => timeToMinutes(d.time) >= currentMinutes)
-    .sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
-
-  let nextBus = upcoming[0];
+  let next = all.find(b => timeToMin(b.time) >= nowMins);
   let isTomorrow = false;
 
-  if (!nextBus && allDeps.length > 0) {
-    nextBus = allDeps.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time))[0];
+  if (!next && all.length > 0) {
+    next = all[0];
     isTomorrow = true;
   }
 
-  if (nextBus) {
-    document.getElementById("nextBusDest").textContent = `${nextBus.destination_en} (${nextBus.destination_kn})`;
-    document.getElementById("nextBusTime").textContent = formatTo12Hour(nextBus.time);
-    document.getElementById("nextBusPlatform").textContent = nextBus.platform;
-    document.getElementById("nextBusType").textContent = nextBus.serviceType;
+  if (next) {
+    document.getElementById("radarDest").textContent = next.destination_en;
+    document.getElementById("radarDestKn").textContent = next.destination_kn;
+    document.getElementById("radarTime").textContent = format12(next.time);
+    document.getElementById("radarBay").textContent = next.platform;
+    document.getElementById("radarType").textContent = next.service.toUpperCase();
 
-    let diffMinutes = timeToMinutes(nextBus.time) - currentMinutes;
-    if (isTomorrow) diffMinutes += 1440;
+    let diff = timeToMin(next.time) - nowMins;
+    if (isTomorrow) diff += 1440;
 
-    const hours = Math.floor(diffMinutes / 60);
-    const mins = diffMinutes % 60;
-    const diffString = hours > 0 ? `in ${hours}h ${mins}m` : `in ${mins} mins`;
-    
-    document.getElementById("nextBusCountdown").textContent = isTomorrow ? `Tomorrow (${diffString})` : `Departs ${diffString}`;
+    const hrs = Math.floor(diff / 60);
+    const mins = diff % 60;
+    const diffStr = hrs > 0 ? `${hrs}h ${mins}m` : `${mins} mins`;
+
+    document.getElementById("radarCountdown").textContent = isTomorrow ? `Tomorrow in ${diffStr}` : `Boarding in ${diffStr}`;
   }
 }
 
-function openRouteDetails(routeId, time) {
-  const route = TIMETABLE_DATA.routes.find(r => r.id === routeId);
-  if (!route) return;
+function openDrawer(bus) {
+  document.getElementById("modalBadge").textContent = bus.service.toUpperCase();
+  document.getElementById("modalBayNum").textContent = bus.platform;
+  document.getElementById("modalDestCity").textContent = bus.destination_en;
+  document.getElementById("modalDestKn").textContent = bus.destination_kn;
+  document.getElementById("modalTime").textContent = format12(bus.time);
+  document.getElementById("modalServiceClass").textContent = bus.service;
 
-  const modalBody = document.getElementById("modalBody");
-  modalBody.innerHTML = `
-    <h3>Subrahmanya ➔ ${route.destination_en}</h3>
-    <p style="color: var(--text-secondary); margin-bottom: 1rem;">${route.destination_kn}</p>
-    
-    <div class="timeline">
-      <div class="timeline-step">
-        <strong>Subrahmanya Bus Stand</strong>
-        <p>Departure: ${formatTo12Hour(time)} (Platform ${route.platform})</p>
-      </div>
-      <div class="timeline-step">
-        <strong>Direct / Express Highway Route</strong>
-        <p>Service: ${route.bus_type}</p>
-      </div>
-      <div class="timeline-step">
-        <strong>${route.destination_en}</strong>
-        <p>Destination Terminal</p>
-      </div>
+  // Timeline Generator
+  const timeline = document.getElementById("transitTimeline");
+  timeline.innerHTML = `
+    <div class="timeline-node">
+      <h4>Subrahmanya Bus Stand (Bay ${bus.platform})</h4>
+      <p>Origin Terminal • Scheduled departure ${format12(bus.time)}</p>
     </div>
-    <div style="font-size: 0.85rem; color: var(--text-secondary);">
-      * Timings reflect official station board schedule.
+    <div class="timeline-node">
+      <h4>State Highway Transit Route</h4>
+      <p>Express corridor transit via KSRTC schedule</p>
+    </div>
+    <div class="timeline-node end">
+      <h4>${bus.destination_en} (${bus.destination_kn})</h4>
+      <p>Scheduled arrival terminal</p>
     </div>
   `;
+
+  // Share action
+  document.getElementById("shareBusBtn").onclick = () => {
+    const text = `🚌 Subrahmanya ➔ ${bus.destination_en} at ${format12(bus.time)} (Bay ${bus.platform}, ${bus.service}). Timetable via KSRTC Pulse.`;
+    if (navigator.share) {
+      navigator.share({ title: "Bus Schedule", text });
+    } else {
+      navigator.clipboard.writeText(text);
+      alert("Schedule details copied to clipboard!");
+    }
+  };
+
   document.getElementById("routeModal").showModal();
 }
 
@@ -396,29 +371,20 @@ function toggleFavourite(routeId) {
   } else {
     favourites.push(routeId);
   }
-  localStorage.setItem("favourite_routes", JSON.stringify(favourites));
-  applyFiltersAndRender();
+  localStorage.setItem("pulse_fav_routes", JSON.stringify(favourites));
+  applyFilters();
 }
 
 function initTheme() {
-  const savedTheme = localStorage.getItem("app_theme") || 
-    (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-  document.documentElement.setAttribute("data-theme", savedTheme);
-  updateThemeIcon(savedTheme);
+  const th = localStorage.getItem("pulse_theme") || "dark";
+  document.body.setAttribute("data-theme", th);
+  document.getElementById("themeToggle").textContent = th === "dark" ? "☀️" : "🌙";
 }
 
 function toggleTheme() {
-  const current = document.documentElement.getAttribute("data-theme");
-  const target = current === "dark" ? "light" : "dark";
-  document.documentElement.setAttribute("data-theme", target);
-  localStorage.setItem("app_theme", target);
-  updateThemeIcon(target);
-}
-
-function updateThemeIcon(theme) {
-  document.getElementById("themeToggle").textContent = theme === "dark" ? "☀️" : "🌙";
-}
-
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js").catch(err => console.log("SW registration failed", err));
+  const cur = document.body.getAttribute("data-theme");
+  const next = cur === "dark" ? "light" : "dark";
+  document.body.setAttribute("data-theme", next);
+  localStorage.setItem("pulse_theme", next);
+  document.getElementById("themeToggle").textContent = next === "dark" ? "☀️" : "🌙";
 }
